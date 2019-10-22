@@ -35,7 +35,7 @@ void* pong()
 void* serve()
 	{
 	
-	usleep( 500000 ); 
+	//usleep( 500000 ); 
 	pthread_cond_signal( &pongHit ); 
 	}
 
@@ -58,15 +58,16 @@ int main( int argc, char* argv[] )
 		fprintf( stderr, "Error while creating thread\n" ); 
 		}
 		
+/*
 	if( pthread_create( &thread3, NULL, serve, NULL ))
 		{
 		
 		fprintf( stderr, "Error while creating thread\n" ); 
-		}
+		} */ 
 		
 	pthread_join( thread1, NULL ); 
 	pthread_join( thread2, NULL ); 
-	pthread_join( thread3, NULL ); 
+	//pthread_join( thread3, NULL ); 
 	
 	pthread_cond_signal( &pongHit ); 
 	}

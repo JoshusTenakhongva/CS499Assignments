@@ -15,8 +15,11 @@ typedef struct Thread_info
 	{
 	
 	pthread_mutex_t lock; 
-	pthread_cond_t leftMittens[ NUM_OF_LEFT_MITTENS ]; 
-	pthread_cond_t rightMittens[ NUM_OF_RIGHT_MITTENS ]; 
+	pthread_mutex_t line; 
+	pthread_mutex_t leftMittens[ NUM_OF_LEFT_MITTENS ];
+	//pthread_cond_t leftMittens[ NUM_OF_LEFT_MITTENS ]; 
+	pthread_mutex_t rightMittens[ NUM_OF_RIGHT_MITTENS ];
+	//pthread_cond_t rightMittens[ NUM_OF_RIGHT_MITTENS ]; 
 	
 	int left_baker_count; 
 	int right_baker_count; 
@@ -27,6 +30,11 @@ typedef struct Thread_info
 	
 	int leftMittenQueues[ NUM_OF_LEFT_MITTENS ];
 	int rightMittenQueues[ NUM_OF_RIGHT_MITTENS ]; 
+	
+	int leftQueueIndex; 
+	int rightQueueIndex; 
+	
+	int randomizerSeed; 
 
 	} Thread_info; 
 	
@@ -37,18 +45,23 @@ typedef enum BakerType { left, right, cautious } BakerType;
 void* left_baker_work( void* info ); 
 void* right_baker_work( void* info ); 
 void* cautious_baker_work( void* info ); 
+void* openMittenRack( void* info );
 
 int findBakerID( Thread_info* info, BakerType type ); 
 
 void workWait( int seed ); 
 void cookiePrep( int seed, BakerType type, int id ); 
+void removeCookies( BakerType type, int id ); 
 void bakeCookies( int seed, BakerType type, int id );
 void printBaker( BakerType type, int id ); 
 
 int grabLeftMitten( BakerType type, int id, Thread_info* mittRack );
 int grabRightMitten( BakerType type, int id, Thread_info* mittRack );
 int grabMitten( BakerType type, int id, Thread_info* mittRack );
-int findShortestQueue( int queue[], int queueLength ); 
+int chooseRandomQueue( int queueLength ); 
+
+void returnLeftMitten( Thread_info* mittRack, int mittNumber, BakerType type, int id  );
+void returnRightMitten( Thread_info* mittRack, int mittNumber, BakerType type, int id  );
 
 /*
 * Main Function
@@ -89,23 +102,27 @@ int main( int argc, char* argv[] )
 	// Initialize baker thread arrays
 	pthread_t leftBakers[ leftBakerCount ]; 
 	pthread_t rightBakers[ rightBakerCount ]; 
-	pthread_t cautiousBakers[ cautiousBakerCount ]; 	
+	pthread_t cautiousBakers[ cautiousBakerCount ]; 
+	pthread_t rackOpener; 	
 	
 	// Initialize the amount of mitts are available to our bakers
 	Thread_info thread_info; 
 	
 	thread_info.lock = mutex; 
+	pthread_mutex_init( &( thread_info.line ), NULL );
 	
 	// Initialize the mitten condition variables
 	for( index = 0; index < NUM_OF_LEFT_MITTENS; index++ )
 		{
 		
-		pthread_cond_init( &thread_info.leftMittens[ index ], NULL ); 
+		pthread_mutex_init( &thread_info.leftMittens[ index ], NULL ); 
+		//pthread_cond_init( &thread_info.leftMittens[ index ], NULL ); 
 		}
 	for( index = 0; index < NUM_OF_RIGHT_MITTENS; index++ )
 		{
 		
-		pthread_cond_init( &thread_info.rightMittens[ index ], NULL ); 
+		pthread_mutex_init( &thread_info.rightMittens[ index ], NULL ); 
+		//pthread_cond_init( &thread_info.rightMittens[ index ], NULL ); 
 		}
 	
 	thread_info.leftMittensCount = NUM_OF_LEFT_MITTENS; 
@@ -114,6 +131,11 @@ int main( int argc, char* argv[] )
 	thread_info.left_baker_count = 0; 
 	thread_info.right_baker_count = 0; 
 	thread_info.cautious_baker_count = 0; 
+	
+	thread_info.leftQueueIndex = 0; 
+	thread_info.rightQueueIndex = 0; 
+	
+	thread_info.randomizerSeed = bakerySeed; 
 	
 	// Initialize left handed baker threads
 	for( index = 0; index < leftBakerCount; index++ )
@@ -148,6 +170,14 @@ int main( int argc, char* argv[] )
 			}
 		}
 	
+	/*
+	if( pthread_create( &rackOpener, NULL, openMittenRack, ( void* ) ( &thread_info )))
+		{
+			
+		fprintf( stderr, "Error while creating thread\n" ); 
+		} 
+		*/ 
+	
 	// Join threads
 	for( index = 0; index < leftBakerCount; index++ )
 		{
@@ -164,6 +194,8 @@ int main( int argc, char* argv[] )
 		
 		pthread_join( cautiousBakers[ index ], NULL ); 
 		}
+	//pthread_join( rackOpener, NULL );	
+	
 	}
 	
 	
@@ -174,14 +206,16 @@ int main( int argc, char* argv[] )
 void* left_baker_work( void* info )
 	{
 	
-	// Initialize variables
-	int baker_id; 
-	int batch; 
-	BakerType bakerType = left; 
-	
 	// Cast our thread info back into a struct
 	Thread_info* thread_info = ( Thread_info* ) info; 
 	
+	// Initialize variables
+	int baker_id; 
+	int batch; 
+	int mitten; 
+	int randomSeed = thread_info->randomizerSeed;
+	BakerType bakerType = left; 
+
 	// Save our lock
 	pthread_mutex_t* lock = &(thread_info->lock); 
 	
@@ -191,22 +225,28 @@ void* left_baker_work( void* info )
 	// Loop through until our baker is done working
 	for( batch = 0; batch < 10; batch++ )
 		{
-		
-		cookiePrep( 0, bakerType, baker_id ); 
-		grabLeftMitten( bakerType, baker_id, thread_info ); 
+
+		cookiePrep( randomSeed, bakerType, baker_id ); 
+		mitten = grabLeftMitten( bakerType, baker_id, thread_info );  
+		bakeCookies( randomSeed, bakerType, baker_id ); 
+		removeCookies( bakerType, baker_id );
+		returnLeftMitten( thread_info, mitten, bakerType, baker_id ); 
 		}
 	}
 	
 void* right_baker_work( void* info ) 
 	{
 	
+	// Cast our thread info back into a struct
+	Thread_info* thread_info = ( Thread_info* ) info; 
+	
 	// Initialize variables
 	int baker_id; 
 	int batch; 
+	int mitten; 
+	int randomSeed = thread_info->randomizerSeed; 
 	BakerType bakerType = right; 
-	
-	// Cast our thread info back into a struct
-	Thread_info* thread_info = ( Thread_info* ) info; 
+
 	
 	// Save our lock
 	pthread_mutex_t* lock = &(thread_info->lock); 
@@ -218,7 +258,11 @@ void* right_baker_work( void* info )
 	for( batch = 0; batch < 10; batch++ )
 		{
 		
-		cookiePrep( 0, bakerType, baker_id ); 
+		cookiePrep( randomSeed, bakerType, baker_id ); 
+		mitten = grabRightMitten( bakerType, baker_id, thread_info );  
+		bakeCookies( randomSeed, bakerType, baker_id ); 
+		removeCookies( bakerType, baker_id );
+		returnRightMitten( thread_info, mitten, bakerType, baker_id ); 
 		}
 	}
 	
@@ -226,13 +270,16 @@ void* right_baker_work( void* info )
 void* cautious_baker_work( void* info ) 
 	{
 	
+	// Cast our thread info back into a struct
+	Thread_info* thread_info = ( Thread_info* ) info; 
+	
 	// Initialize variables
 	int baker_id; 
 	int batch; 
+	int leftMitten;
+	int rightMitten; 
+	int randomSeed = thread_info->randomizerSeed; 
 	BakerType bakerType = cautious; 
-	
-	// Cast our thread info back into a struct
-	Thread_info* thread_info = ( Thread_info* ) info; 
 	
 	// Save our lock
 	pthread_mutex_t* lock = &(thread_info->lock); 
@@ -244,7 +291,15 @@ void* cautious_baker_work( void* info )
 	for( batch = 0; batch < 10; batch++ )
 		{
 		
-		cookiePrep( 0, bakerType, baker_id ); 
+		cookiePrep( randomSeed, bakerType, baker_id ); 
+		
+		leftMitten = grabLeftMitten( bakerType, baker_id, thread_info );  
+		rightMitten = grabRightMitten( bakerType, baker_id, thread_info );  
+		
+		bakeCookies( randomSeed, bakerType, baker_id ); 
+		removeCookies( bakerType, baker_id );
+		returnLeftMitten( thread_info, leftMitten, bakerType, baker_id ); 
+		returnRightMitten( thread_info, rightMitten, bakerType, baker_id ); 
 		}
 	}
 	
@@ -301,6 +356,9 @@ int findBakerID( Thread_info* info, BakerType type )
 void workWait( int seed )
 	{
 	
+	// seed our randomizer
+	srand( seed ); 
+	
 	// Determine the random section of our sleep time 
 	int workTime = 3.0 * (double) rand()/ (double)RAND_MAX; 
 	
@@ -320,6 +378,13 @@ void cookiePrep( int seed, BakerType type, int id )
 	printBaker( type, id ); 
 	printf( "is working...\n" ); 
 	workWait( seed ); 
+	}
+	
+void removeCookies( BakerType type, int id )
+	{
+	
+	printBaker( type, id ); 
+	printf( "has taken cookies out of the oven...\n" ); 
 	}
 	
 /*
@@ -363,8 +428,10 @@ int grabLeftMitten( BakerType type, int id, Thread_info* mittRack )
 	{
 	
 	// Initialize variables
-	int shortestQueueIndex; 
-	pthread_mutex_t* upNext = &( mittRack->lock ); 
+	int chosenQueue; 
+	int* queuePosition;
+	pthread_mutex_t* lock = &( mittRack->lock ); 
+	pthread_mutex_t* upNext = &( mittRack->line ); 
 	int* queue = mittRack->leftMittenQueues;
 	int queueLength = mittRack->leftMittensCount; 
 	
@@ -372,67 +439,126 @@ int grabLeftMitten( BakerType type, int id, Thread_info* mittRack )
 	printBaker( type, id ); 
 	printf( "wants a left-handed mitt...\n" ); 
 	
-	// Lock our queue 
+	/* Figure out which queue we want to get into */ 
+	
+	// Wait in the queue
 	pthread_mutex_lock( upNext ); 
 	
-	// Find the shortest mitten queue 
-	shortestQueueIndex = findShortestQueue( queue, queueLength ); 
+	// Choose a random queue
+	queuePosition = &( mittRack->leftQueueIndex ); 
+	chosenQueue = *queuePosition; 
+	*queuePosition = *queuePosition + 1; 
 	
-	// 
+	if( *queuePosition == queueLength )
+		{
+		
+		*queuePosition = 0; 
+		}
 	
-	// Unlock our queue
+	// Exit the queue
 	pthread_mutex_unlock( upNext ); 
+	
+	/* Get into the front of the line */ 
+
+	// Wait for our chosen mitten 
+	pthread_mutex_lock( &(mittRack->leftMittens[ chosenQueue ]) ); 
+	//pthread_cond_wait( &(mittRack->leftMittens[ chosenQueue ]), lock ); 
 	
 	// Print that our baker has got a left mitten 
 	printBaker( type, id ); 
 	printf( "has got a left-handed mitt...\n" ); 
 	
 	// Return our mitten number 
-	return shortestQueueIndex; 
+	return chosenQueue;  
 	}	
 	
 int grabRightMitten( BakerType type, int id, Thread_info* mittRack )
 	{
 	
+	// Initialize variables
+	int chosenQueue; 
+	int* queuePosition;
+	pthread_mutex_t* lock = &( mittRack->lock ); 
+	pthread_mutex_t* upNext = &( mittRack->line ); 
+	int* queue = mittRack->rightMittenQueues;
+	int queueLength = mittRack->rightMittensCount; 
 	
-	// Print that our baker wants a right mitten 
+	// Print that our baker wants a left mitten 
+	printBaker( type, id ); 
+	printf( "wants a right-handed mitt...\n" ); 
 	
-	// Print that our baker has got a right mitten 
-	}
+	/* Figure out which queue we want to get into */ 
 	
-int grabMitten( BakerType type, int id, Thread_info* mittRack )
-	{
+	// Wait in the queue
+	pthread_mutex_lock( upNext ); 
 	
+	// Choose a random queue
+	queuePosition = &( mittRack->rightQueueIndex ); 
+	chosenQueue = *queuePosition; 
+	*queuePosition = *queuePosition + 1; 
 	
-	}
-	
-int findShortestQueue( int queue[], int queueLength )
-	{
-	
-	int index; 
-	int shortestQueueIndex; 
-	
-	for( index = 0; index < queueLength; index++ )
+	if( *queuePosition == queueLength )
 		{
 		
-		if( index != 0 )
-			{
-			
-			if( queue[ index ] < shortestQueueIndex )
-				{
-				
-				shortestQueueIndex = index; 
-				}
-			}
-			
-		else
-			{
-			
-			shortestQueueIndex = queue[ index ]; 
-			}
+		*queuePosition = 0; 
+		}
+	
+	// Exit the queue
+	pthread_mutex_unlock( upNext ); 
+	
+	/* Get into the front of the line */ 
+
+	// Wait for our chosen mitten 
+	pthread_mutex_lock( &(mittRack->rightMittens[ chosenQueue ]) ); 
+	//pthread_cond_wait( &(mittRack->leftMittens[ chosenQueue ]), lock ); 
+	
+	// Print that our baker has got a left mitten 
+	printBaker( type, id ); 
+	printf( "has got a right-handed mitt...\n" ); 
+	
+	// Return our mitten number 
+	return chosenQueue;  
+	}
+	
+void returnLeftMitten( Thread_info* mittRack, int mittNumber, BakerType type, int id  )
+	{
+
+	printBaker( type, id ); 
+	printf( "has put back a left-handed mitt...\n" ); 
+	pthread_mutex_unlock( &(mittRack->leftMittens[ mittNumber ]) ); 
+	//pthread_cond_signal( &(mittRack->leftMittens[ mittNumber ]) ); 
+	}
+	
+void returnRightMitten( Thread_info* mittRack, int mittNumber, BakerType type, int id )
+	{
+	
+	printBaker( type, id ); 
+	printf( "has put back a right-handed mitt...\n" ); 
+	pthread_mutex_unlock( &(mittRack->rightMittens[ mittNumber ] ) ); 
+	//pthread_cond_signal( &(mittRack->rightMittens[ mittNumber ]) ); 
+	}
+	
+	/*
+void* openMittenRack( void* info )
+	{
+	
+	Thread_info* mittRack = ( Thread_info* ) info; 
+	int index; 
+	int leftMittRackSize = mittRack->leftMittensCount; 
+	int rightMittRackSize = mittRack->rightMittensCount; 
+	usleep( 500000 );
+	
+	for( index = 0; index < leftMittRackSize; index++ )
+		{
+		
+		pthread_cond_signal( &(mittRack->leftMittens[ index ]) );
 		}
 		
-	return shortestQueueIndex; 
-	}
+	for( index = 0; index < rightMittRackSize; index++ )
+		{
+		
+		pthread_cond_signal( &(mittRack->rightMittens[ index ]) ); 
+		}	
+	}*/ 
 	
 //
