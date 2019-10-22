@@ -64,7 +64,7 @@ int main( int argc, char* argv[] )
 	// Save the number of each baker
 	int leftBakerCount = atoi( argv[ 1 ] ); 
 	int rightBakerCount = atoi( argv[ 2 ] ); 
-	int cautiousBakerCount = atoi( argv[ 3 ] ); 
+	int cautiousBakerCount = atoi( argv[ 3 ] );
 	int bakerySeed = atoi( argv[ 4 ] ); 
 	
 	// Initialize baker thread arrays
@@ -141,6 +141,7 @@ void* left_baker_work( void* info )
 	// Initialize variables
 	int baker_id; 
 	int batch; 
+	int queueTicket; 
 	BakerType bakerType = left; 
 	
 	// Cast our thread info back into a struct
@@ -167,6 +168,7 @@ void* right_baker_work( void* info )
 	// Initialize variables
 	int baker_id; 
 	int batch; 
+	int queueTicket;
 	BakerType bakerType = right; 
 	
 	// Cast our thread info back into a struct
@@ -194,6 +196,7 @@ void* cautious_baker_work( void* info )
 	// Initialize variables
 	int baker_id; 
 	int batch; 
+	int queueTicket;
 	BakerType bakerType = cautious; 
 	
 	// Cast our thread info back into a struct
@@ -276,12 +279,18 @@ void retrieveMitts( BakerType type, Thread_info* mittRack )
 	// Check if the baker needs a right mitt
 	
 		// 
-		
-	// Check if the baker needs both
-	
-		// 
+
 	}
 	
+void mittenRackQueue( BakerType type, Thread_info* mittRack )
+	{
+	
+	// Have the baker wait until there is a mitt ready
+	
+	// Grab a mit
+	
+	// Leave the queue and unlock the lock
+	}
 	
 	
 	
