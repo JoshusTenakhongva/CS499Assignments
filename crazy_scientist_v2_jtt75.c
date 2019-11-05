@@ -45,7 +45,7 @@ int main(int argc, char **argv) {
 				
 				for (i=0;i<SIZE/2;i++) /* loop over the rows */
 					{ 
-					for (j=0;j<SIZE/2;j++) /* loop over the columns */
+					for (j=0;j<SIZE;j++) /* loop over the columns */
 						{  
 						mat[i][j] = do_crazy_computation(i,j);
 						fprintf(stderr,".");
@@ -62,7 +62,7 @@ int main(int argc, char **argv) {
 				
 				for (i=SIZE/2;i<SIZE;i++) /* loop over the rows */
 					{ 
-					for (j=SIZE/2;j<SIZE;j++) /* loop over the columns */
+					for (j=0;j<SIZE;j++) /* loop over the columns */
 						{  
 						mat[i][j] = do_crazy_computation(i,j);
 						fprintf(stderr,".");
